@@ -11,7 +11,7 @@ class WAVReader {
 private:
     char file_path[MAX_FILE_PATH_SIZE];
     uint32_t audio_buffer_size;
-    float *audio_buffer;
+    BYTE *audio_buffer;
 public:
     WAVReader();
 

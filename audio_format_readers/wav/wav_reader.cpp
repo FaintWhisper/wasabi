@@ -145,7 +145,7 @@ void WAVReader::load_fmt_subchunk(std::ifstream *file) {
 // Gets the sample rate
     file->read(reinterpret_cast<char *> (&fmt_subchunk_sample_rate), sizeof(fmt_subchunk_sample_rate));
 
-    if (fmt_subchunk_sample_rate == 22050 || fmt_subchunk_sample_rate == 44100) {
+    if (fmt_subchunk_sample_rate == 22050 || fmt_subchunk_sample_rate == 44100 || fmt_subchunk_sample_rate == 48000) {
         std::cerr << "Sample rate: Ok (" << fmt_subchunk_sample_rate << " Hz)." << std::endl;
     } else {
         std::cout << "Error: Bad sample rate, only audio files sampled at 22050 or 44100 Hz are currently supported."
@@ -183,7 +183,7 @@ void WAVReader::load_fmt_subchunk(std::ifstream *file) {
     }
 
     // Checks the bit depth
-    if (fmt_subchunk_bits_per_sample == 24 || fmt_subchunk_bits_per_sample == 32) {
+    if (fmt_subchunk_bits_per_sample == 16 || fmt_subchunk_bits_per_sample == 24 || fmt_subchunk_bits_per_sample == 32) {
         std::cerr << "Bit Depth: Ok (" << fmt_subchunk_bits_per_sample << " bits)." << std::endl;
     } else {
         std::cout << "Error: Unsupported bit depth" << std::endl;
@@ -222,27 +222,30 @@ void WAVReader::load_data_subchunk(std::ifstream *file) {
         exit(EXIT_FAILURE);
     }
 
-    float buffer[data_subchunk_size];
+    BYTE* buffer = (BYTE*) malloc(data_subchunk_size);
 
-    file->read(reinterpret_cast<char *> (buffer), (data_subchunk_size / 8) * sizeof(float));
+    file->read(reinterpret_cast<char *> (buffer), data_subchunk_size);
 
     this->audio_buffer = buffer;
     this->audio_buffer_size = data_subchunk_size;
 };
 
 bool WAVReader::write_data(BYTE *dst_audio_buffer, int num_buffer_frames, WAVEFORMATEX *format) {
-    int buffer_size = num_buffer_frames * format->nChannels * (format->wBitsPerSample / 8);
+    if (this->audio_buffer_size > 0) {
+        int buffer_size = num_buffer_frames * format->nChannels * (format->wBitsPerSample / 8);
 
-    std::cout << "Buffer Size: " << buffer_size << std::endl;
+        std::cout << "Buffer Size: " << buffer_size << " bytes" << std::endl;
 
-    if (this->audio_buffer_size < buffer_size) {
-        buffer_size = this->audio_buffer_size;
-    }
+        if (this->audio_buffer_size < buffer_size) {
+            buffer_size = this->audio_buffer_size;
+        }
 
-    memcpy(dst_audio_buffer, this->audio_buffer, buffer_size);
+        memcpy(dst_audio_buffer, this->audio_buffer, buffer_size);
 
-    this->audio_buffer += buffer_size;
-    this->audio_buffer_size -= buffer_size;
+        this->audio_buffer += buffer_size;
+        this->audio_buffer_size -= buffer_size;
 
-    return this->audio_buffer_size <= 0;
+        return FALSE;
+    } else
+        return TRUE;
 };

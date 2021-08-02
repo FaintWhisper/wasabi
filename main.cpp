@@ -4,6 +4,10 @@
 #include <audioclient.h>
 #include "wav_reader.hpp"
 
+#undef KSDATAFORMAT_SUBTYPE_PCM
+const GUID KSDATAFORMAT_SUBTYPE_PCM = { 0x00000001, 0x0000, 0x0010,
+                                        {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71} };
+
 using namespace std;
 
 #define MAX_PATH_LENGTH 300
@@ -40,13 +44,44 @@ VOID PlayAudioStream(char audio_file[]) {
 
     // Gets the audio format used by the audio client interface
     WAVEFORMATEX *format = NULL;
+    WAVEFORMATEX *closest_format = NULL;
 
-    audio_client->GetMixFormat(&format);
+    // Set audio endpoint default format parameters (mmsys.cpl -> audio endpoint properties -> advanced options)
+    int num_channels = 2;
+    int bit_depth = 16;
+    int sample_rate = 48000;
+
+    WAVEFORMATEXTENSIBLE mix_format;
+    mix_format.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+    mix_format.Format.nSamplesPerSec = sample_rate;
+    mix_format.Format.nChannels = num_channels;
+    mix_format.Format.wBitsPerSample = bit_depth;
+    mix_format.Format.nBlockAlign = (num_channels * bit_depth) / 8;
+    mix_format.Format.nAvgBytesPerSec = sample_rate * mix_format.Format.nBlockAlign;
+    mix_format.Format.cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
+    mix_format.Samples.wValidBitsPerSample = bit_depth;
+    mix_format.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
+    mix_format.dwChannelMask = KSAUDIO_SPEAKER_STEREO;
+
+    HRESULT result = audio_client->IsFormatSupported(AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX*) &mix_format, &closest_format);
+
+    if (result == S_OK) {
+        std::cout << "The mix format is supported!" << std::endl;
+
+        format = (WAVEFORMATEX*) &mix_format;
+    } else if (result == S_FALSE) {
+        std::cout << "The requested mix format is not supported, a closest match was provided." << std::endl;
+
+        format = closest_format;
+    } else {
+        std::cout << "ERROR: Unable to establish a supported mix format." << std::endl;
+        exit(EXIT_FAILURE);
+    }
 
     // Initializes the audio client interface
     REFERENCE_TIME req_duration = REFTIMES_PER_SEC;
 
-    HRESULT result = audio_client->Initialize(AUDCLNT_SHAREMODE_SHARED, 0, req_duration, 0, format, NULL);
+    result = audio_client->Initialize(AUDCLNT_SHAREMODE_SHARED, 0, req_duration, 0, format, NULL);
 
     // Gets a reference to the audio render client interface of the audio client
     IAudioRenderClient *audio_render_client;
@@ -66,6 +101,9 @@ VOID PlayAudioStream(char audio_file[]) {
     bool stop = FALSE;
     bool playing = FALSE;
 
+    // Declares rendering endpoint buffer flags
+    DWORD buffer_flags = 0;
+
     // Instantiates a WAV format reader
     WAVReader wav_reader;
     wav_reader.load_file(audio_file);
@@ -73,15 +111,20 @@ VOID PlayAudioStream(char audio_file[]) {
     while (stop == FALSE) {
         audio_client->GetCurrentPadding(&num_padding_frames);
         num_buffer_frames -= num_padding_frames;
-        cout << endl << "Number of Frames: " << num_buffer_frames << endl;
+        cout << endl << "Number of Available Frames in Buffer: " << num_buffer_frames << endl;
 
         // Retrieves a pointer to the next available memory space in the rendering endpoint buffer
         audio_render_client->GetBuffer(num_buffer_frames, &buffer);
 
         // Load the audio data in the rendering endpoint buffer
         stop = wav_reader.write_data(buffer, num_buffer_frames, format);
+        cout << "Wrote " <<  num_buffer_frames << " Frames to Buffer" << endl;
 
-        audio_render_client->ReleaseBuffer(num_buffer_frames, AUDCLNT_BUFFERFLAGS_SILENT);
+        if (stop) {
+            buffer_flags = AUDCLNT_BUFFERFLAGS_SILENT;
+        }
+
+        audio_render_client->ReleaseBuffer(num_buffer_frames, buffer_flags);
 
         if (playing == FALSE) {
             HRESULT result = audio_client->Start();
@@ -91,7 +134,7 @@ VOID PlayAudioStream(char audio_file[]) {
         buffer_audio_duration =
                 (DWORD) (num_buffer_frames / format->nSamplesPerSec) * (REFTIMES_PER_SEC / REFTIMES_PER_MILLISEC);
 
-        cout << "Buffer Duration: " << buffer_audio_duration << endl;
+        cout << "Buffer Duration: " << buffer_audio_duration << " ms" << endl;
 
         Sleep(buffer_audio_duration);
     }

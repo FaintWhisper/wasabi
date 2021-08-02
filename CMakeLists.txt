@@ -16,3 +16,4 @@ set(
 )
 
 add_executable(wasabi ${SOURCE_FILES})
+set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "wasabi")

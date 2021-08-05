@@ -9,9 +9,23 @@
 
 class WAVReader {
 private:
-    char file_path[MAX_FILE_PATH_SIZE];
-    uint32_t audio_buffer_size;
     BYTE *audio_buffer;
+public:
+    char file_path[MAX_FILE_PATH_SIZE];
+    char chunk_id[4];
+    uint32_t chunk_size;
+    char format_descriptor[4];
+    char fmt_subchunk_id[4];
+    uint32_t fmt_subchunk_size;
+    uint16_t audio_format;
+    uint16_t num_channels;
+    uint32_t sample_rate;
+    uint32_t byte_rate;
+    uint16_t block_align;
+    uint16_t bit_depth;
+    char data_subchunk_id[4];
+    uint32_t data_subchunk_size;
+    uint32_t audio_buffer_size;
 public:
     WAVReader();
 

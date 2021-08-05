@@ -108,17 +108,19 @@ VOID PlayAudioStream(char audio_file[]) {
     WAVReader wav_reader;
     wav_reader.load_file(audio_file);
 
+    // Declares and initializes the variables that will keep track of the playing time
+    int current_minutes = 0;
+    int current_seconds = 0;
+
     while (stop == FALSE) {
         audio_client->GetCurrentPadding(&num_padding_frames);
         num_buffer_frames -= num_padding_frames;
-        cout << endl << "Number of Available Frames in Buffer: " << num_buffer_frames << endl;
 
         // Retrieves a pointer to the next available memory space in the rendering endpoint buffer
         audio_render_client->GetBuffer(num_buffer_frames, &buffer);
 
         // Load the audio data in the rendering endpoint buffer
         stop = wav_reader.write_data(buffer, num_buffer_frames, format);
-        cout << "Wrote " <<  num_buffer_frames << " Frames to Buffer" << endl;
 
         if (stop) {
             buffer_flags = AUDCLNT_BUFFERFLAGS_SILENT;
@@ -126,17 +128,35 @@ VOID PlayAudioStream(char audio_file[]) {
 
         audio_render_client->ReleaseBuffer(num_buffer_frames, buffer_flags);
 
-        if (playing == FALSE) {
-            HRESULT result = audio_client->Start();
-            playing = TRUE;
-        }
-
         buffer_audio_duration =
                 (DWORD) (num_buffer_frames / format->nSamplesPerSec) * (REFTIMES_PER_SEC / REFTIMES_PER_MILLISEC);
 
-        cout << "Buffer Duration: " << buffer_audio_duration << " ms" << endl;
+        if (playing == FALSE) {
+            HRESULT result = audio_client->Start();
+
+            cout << endl << "Starting to play the file" << endl;
+            cout << "Number of Available Frames in Rendering Buffer: " << num_buffer_frames << endl;
+            cout << "Audio Buffer Size: " << wav_reader.audio_buffer_size << " bytes" << endl;
+            cout << "Buffer Duration: " << buffer_audio_duration << " ms" << endl;
+
+            float duration = wav_reader.data_subchunk_size / wav_reader.byte_rate;
+            int minutes = (int) (duration / 60);
+            int seconds = (int) duration - (minutes * 60);
+            printf("Audio Duration: %dm %.2ds\n", minutes, seconds);
+
+            playing = TRUE;
+        }
+
+        printf("\rCurrente Time: %dm %.2ds", current_minutes, current_seconds);
+        fflush(stdout);
 
         Sleep(buffer_audio_duration);
+        current_seconds += 1;
+
+        if (current_seconds == 60) {
+            current_minutes += 1;
+            current_seconds = 0;
+        }
     }
 
     audio_client->Stop();

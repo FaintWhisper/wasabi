@@ -9,8 +9,11 @@ For now, it only works with LPCM encoded WAV audio files that have the same para
 #### TODO:
 - Implement WAVReader class constructor (rather than relying on default initialization) and destructor.
 - Add parameter validation.
-- Add audio session volume control.
-- Add audio playback control.
+- Extend playback control by adding the possibility to skip forward and backward.
+- Register a callback to receive notifications when the volume of the audio session has been changed using the Volume Mixer so that it is correctly updated when displayed on screen.
 - Convert the audio to the same format that the default audio output device is using.
 - Support more audio formats (such as other PCM types and non PCM encoded WAV files, FLAC, ALAC, AIFF, MP3, etc).
-- DONE: Load the audio in chunks from a separate thread rather than doing it all at once, thus decreasing the wait time until the playback begins and considerably reducing the memory footprint.
+- DONE:
+  - Load the audio in chunks from a separate thread rather than doing it all at once, thus decreasing the wait time until the playback begins and considerably reducing the memory footprint.
+  - Add audio session volume control.
+  - Add audio playback control.

@@ -1,5 +1,5 @@
-#ifndef WAVReader_H
-#define WAVReader_H
+#ifndef WASABI_WAVReader_H
+#define WASABI_WAVReader_H
 
 #include <fstream>
 #include <string>
@@ -55,10 +55,14 @@ public:
     char data_subchunk_id[4]{};
     uint32_t data_subchunk_size{};
     uint32_t audio_buffer_chunk_size{};
+    struct audio_duration {
+        int minutes;
+        int seconds;
+    } audio_duration;
 
     void load_file(std::string *file_path);
 
-    bool write_data(BYTE *buffer);
+    bool get_chunk(BYTE **chunk, uint32_t &chunk_size);
 };
 
-#endif
+#endif //WASABI_WAVReader_H

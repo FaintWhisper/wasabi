@@ -121,7 +121,7 @@ void WAVReader::load_fmt_subchunk(std::shared_ptr<std::ifstream> file) {
 
         this->fmt_subchunk_size = file_fmt_size;
     } else {
-        std::cerr << "Error: Bad encoding, only PCM encoded WAV audio files are currently supported." << std::endl;
+        std::cerr << "Error: Bad encoding, only PCM encoded wav audio files are currently supported." << std::endl;
 
         exit(EXIT_FAILURE);
     }
@@ -134,7 +134,7 @@ void WAVReader::load_fmt_subchunk(std::shared_ptr<std::ifstream> file) {
 
         this->audio_format = file_fmt_audio_format;
     } else {
-        std::cerr << "Error: Bad audio format, only linear PCM encoded WAV audio files are currently supported."
+        std::cerr << "Error: Bad audio format, only linear PCM encoded wav audio files are currently supported."
                   << std::endl;
 
         exit(EXIT_FAILURE);
@@ -247,6 +247,11 @@ void WAVReader::load_data_subchunk(std::shared_ptr<std::ifstream> file) {
 
         exit(EXIT_FAILURE);
     }
+
+    float duration = this->data_subchunk_size / this->byte_rate;
+
+    this->audio_duration.minutes = (int) (duration / 60);
+    this->audio_duration.seconds = (int) duration - (this->audio_duration.minutes * 60);
 };
 
 void WAVReader::load_data(std::shared_ptr<std::ifstream> file) {
@@ -285,7 +290,7 @@ void WAVReader::load_data(std::shared_ptr<std::ifstream> file) {
     file->close();
 }
 
-bool WAVReader::write_data(BYTE *dst_audio_buffer) {
+bool WAVReader::get_chunk(BYTE **chunk, uint32_t &chunk_size) {
     bool stop = this->audio_buffer_chunks[this->current_audio_buffer_chunk].is_eof;
     std::unique_lock<std::mutex> lck(this->mtx);
 
@@ -302,7 +307,10 @@ bool WAVReader::write_data(BYTE *dst_audio_buffer) {
         this->is_playback_started = TRUE;
     }
 
-    memcpy(dst_audio_buffer, this->audio_buffer_chunks[this->current_audio_buffer_chunk].data,
+    *chunk = (BYTE *) malloc(this->audio_buffer_chunks[this->current_audio_buffer_chunk].size);
+    chunk_size = this->audio_buffer_chunks[this->current_audio_buffer_chunk].size;
+
+    memcpy(*chunk, this->audio_buffer_chunks[this->current_audio_buffer_chunk].data,
            this->audio_buffer_chunks[this->current_audio_buffer_chunk].size);
     free(this->audio_buffer_chunks[this->current_audio_buffer_chunk].data);
 

@@ -6,32 +6,38 @@
 #include <audioclient.h>
 #include <cstdint>
 
-
 class WASAPI {
 private:
-    IAudioClient *audio_client;
     IMMDevice *output_device;
     WAVEFORMATEX *format;
-    int rendering_endpoint_buffer_duration;
+    IAudioClient *audio_client;
+    IAudioRenderClient *audio_render_client;
+    ISimpleAudioVolume *audio_volume_interface;
 
     void set_concurrency_mode();
 
     void get_default_audio_endpoint();
 
-    void get_mix_format();
+    void create_audio_client();
+
+    void find_best_mix_format(int &sample_rate, int &num_channels, int &bit_depth);
 
     void set_mix_format();
 
     void initialize_audio_client();
 
-    void initialize_audio_render_client();
+    void get_audio_render_client();
+
+    void get_audio_volume_interface();
 
 public:
     WASAPI(int rendering_endpoint_buffer_duration);
 
     ~WASAPI();
 
-    void write_data(uint32_t *chunk);
+    int buffer_duration;
+
+    void write_chunk(BYTE *chunk, uint32_t chunk_size, bool stop);
 
     void start();
 
@@ -39,7 +45,7 @@ public:
 
     float get_volume();
 
-    void set_volume();
+    void set_volume(float volume);
 };
 
 

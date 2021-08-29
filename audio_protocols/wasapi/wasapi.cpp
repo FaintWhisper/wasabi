@@ -1,48 +1,49 @@
-#include "WASAPI.hpp"
+#include "wasapi.hpp"
+#include <comdef.h>
 
 #undef KSDATAFORMAT_SUBTYPE_PCM
-const GUID KSDATAFORMAT_SUBTYPE_PCM = {0x00000001, 0x0000, 0x0010,
-                                       {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
-
 #define SAFE_RELEASE(pointer) if ((pointer) != NULL) {(pointer)->Release(); (pointer) = NULL;}
 
-WASAPI::WASAPI(int rendering_endpoint_buffer_duration) {
-    this->rendering_endpoint_buffer_duration = rendering_endpoint_buffer_duration;
+WASAPI::WASAPI(int buffer_duration) {
+    this->buffer_duration = buffer_duration;
+    this->output_device = nullptr;
+    this->format = (WAVEFORMATEX *) malloc(sizeof(WAVEFORMATEX));
+    this->audio_client = nullptr;
+    this->audio_render_client = nullptr;
+    this->audio_volume_interface = nullptr;
 
-    this->get_default_audio_endpoint();
     this->set_concurrency_mode();
+    this->get_default_audio_endpoint();
+    this->create_audio_client();
     this->set_mix_format();
     this->initialize_audio_client();
-    this->initialize_audio_render_client();
+    this->get_audio_render_client();
+    this->get_audio_volume_interface();
 }
 
 WASAPI::~WASAPI() {
     // Frees all allocated memory
-    CoTaskMemFree(closest_format);
-    SAFE_RELEASE(device_enumerator);
-    SAFE_RELEASE(device);
-    SAFE_RELEASE(audio_client);
-    SAFE_RELEASE(audio_render_client);
+    SAFE_RELEASE(this->output_device);
+    SAFE_RELEASE(this->audio_client);
+    SAFE_RELEASE(this->audio_render_client);
+    SAFE_RELEASE(this->audio_volume_interface);
 }
 
 void WASAPI::get_default_audio_endpoint() {
-    const int REFTIMES_PER_SEC = 10000000;
-    const int REFTIMES_PER_MILLISEC = 10000;
-
     // Creates and initializes a device enumerator object and gets a reference to the interface that will be used to communicate with that object
     const CLSID CLSID_MMDeviceEnumerator = __uuidof(MMDeviceEnumerator);
     const IID IID_IMMDeviceEnumerator = __uuidof(IMMDeviceEnumerator);
-    const IID IID_IAudioClient = __uuidof(IAudioClient);
-    const IID IID_IAudioRenderClient = __uuidof(IAudioRenderClient);
-    const IID IID_ISimpleAudioVolume = __uuidof(ISimpleAudioVolume);
 
-    IMMDeviceEnumerator *device_enumerator = nullptr;
+    IMMDeviceEnumerator *device_enumerator;
 
     CoCreateInstance(CLSID_MMDeviceEnumerator, nullptr, CLSCTX_ALL, IID_IMMDeviceEnumerator,
                      (void **) &device_enumerator);
 
     // Gets the reference to interface of the default audio endpoint
-    device_enumerator->GetDefaultAudioEndpoint(eRender, eMultimedia, &device);
+    device_enumerator->GetDefaultAudioEndpoint(eRender, eMultimedia, &this->output_device);
+
+    // Frees allocated memory
+    SAFE_RELEASE(device_enumerator);
 }
 
 void WASAPI::set_concurrency_mode() {
@@ -52,13 +53,33 @@ void WASAPI::set_concurrency_mode() {
     CoInitializeEx(nullptr, concurrency_model);
 }
 
-void WASAPI::get_mix_formats() {
+void WASAPI::create_audio_client() {
+    // Creates a COM object of the default audio endpoint with the audio client interface activated
+    this->output_device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void **) &this->audio_client);
+}
+
+void WASAPI::find_best_mix_format(int &sample_rate, int &num_channels, int &bit_depth) {
     // Gets the audio format used by the audio client interface (mmsys.cpl -> audio endpoint properties -> advanced options)
 
     // TODO
+
+    sample_rate = 48000;
+    num_channels = 2;
+    bit_depth = 16;
 }
 
 void WASAPI::set_mix_format() {
+    const GUID KSDATAFORMAT_SUBTYPE_PCM = {0x00000001, 0x0000, 0x0010,
+                                           {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+
+    //
+    int sample_rate;
+    int num_channels;
+    int bit_depth;
+
+    this->find_best_mix_format(sample_rate, num_channels, bit_depth);
+
+    //
     WAVEFORMATEXTENSIBLE mix_format;
 
     mix_format.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
@@ -72,38 +93,51 @@ void WASAPI::set_mix_format() {
     mix_format.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
     mix_format.dwChannelMask = KSAUDIO_SPEAKER_STEREO;
 
-    std::cout << "[Checking supported mix format]";
+    std::cout << "[Checking supported mix format]" << std::endl;
 
     WAVEFORMATEX *closest_format = nullptr;
 
     HRESULT result = this->audio_client->IsFormatSupported(AUDCLNT_SHAREMODE_SHARED, (WAVEFORMATEX *) &mix_format,
-                                                     &closest_format);
+                                                           &closest_format);
 
     if (result == S_OK) {
         std::cout << "\nThe mix format is supported!" << std::endl;
 
-        format = (WAVEFORMATEX *) &mix_format;
+        this->format->wFormatTag = WAVE_FORMAT_PCM;
+        this->format->nSamplesPerSec = mix_format.Format.nSamplesPerSec;
+        this->format->nChannels = mix_format.Format.nChannels;
+        this->format->wBitsPerSample = mix_format.Format.wBitsPerSample;
+        this->format->nBlockAlign = (mix_format.Format.nChannels * mix_format.Format.wBitsPerSample) / 8;
+        this->format->nAvgBytesPerSec = mix_format.Format.nSamplesPerSec * mix_format.Format.nBlockAlign;
+        this->format->cbSize = 0;
     } else if (result == S_FALSE) {
         std::cout
                 << "WARNING: The requested mix format is not supported, a closest match will be tried instead (it may not work)."
                 << std::endl;
 
-        format = closest_format;
+        this->format->wFormatTag = WAVE_FORMAT_PCM;
+        this->format->nSamplesPerSec = closest_format->nSamplesPerSec;
+        this->format->nChannels = closest_format->nChannels;
+        this->format->wBitsPerSample = closest_format->wBitsPerSample;
+        this->format->nBlockAlign = (closest_format->nChannels * closest_format->wBitsPerSample) / 8;
+        this->format->nAvgBytesPerSec = closest_format->nSamplesPerSec * closest_format->nBlockAlign;
+        this->format->cbSize = 0;
     } else {
         std::cerr << "ERROR: Unable to establish a supported mix format." << std::endl;
 
         exit(EXIT_FAILURE);
     }
+
+    // Frees allocated memory
+    CoTaskMemFree(closest_format);
 }
 
 void WASAPI::initialize_audio_client() {
-    // Creates a COM object of the default audio endpoiint with the audio client interface activated
-    this->output_device->Activate(IID_IAudioClient, CLSCTX_ALL, nullptr, (void **) &audio_client);
+    const int REFTIMES_PER_SEC = 10000000;
+    REFERENCE_TIME req_duration = this->buffer_duration * REFTIMES_PER_SEC;
 
     // Initializes the audio client interface
-    REFERENCE_TIME req_duration = rendering_endpoint_buffer_duration * REFTIMES_PER_SEC;
-
-    HRESULT result = this->audio_client->Initialize(AUDCLNT_SHAREMODE_SHARED, 0, req_duration, 0, format, nullptr);
+    HRESULT result = this->audio_client->Initialize(AUDCLNT_SHAREMODE_SHARED, 0, req_duration, 0, this->format, nullptr);
 
     if (result != S_OK) {
         std::cerr << "ERROR: Unable to initialize audio client." << std::endl;
@@ -112,74 +146,68 @@ void WASAPI::initialize_audio_client() {
     }
 }
 
-void WASAPI::initialize_audio_render_client() {
+void WASAPI::get_audio_render_client() {
     // Gets a reference to the audio render client interface of the audio client
-    IAudioRenderClient *audio_render_client;
-
-    this->audio_client->GetService(IID_IAudioRenderClient, (void **) &audio_render_client);
-
-    // Declares audio buffer related variables
-    BYTE *buffer;
-    UINT32 num_buffer_frames;
-    UINT32 num_padding_frames;
-    DWORD buffer_audio_duration;
-
-    // Gets the number of audio frames available in the rendering endpoint buffer
-    this->audio_client->GetBufferSize(&num_buffer_frames);
+    this->audio_client->GetService(__uuidof(IAudioRenderClient), (void **) &this->audio_render_client);
 }
 
-void WASAPI::write_data(uint32 *chunk) {
+void WASAPI::write_chunk(BYTE *chunk, uint32_t chunk_size, bool stop) {
+    // Declares rendering endpoint buffer flags
+    DWORD buffer_flags = 0;
+
+    // Gets the number of audio frames available in the rendering endpoint buffer
+    uint32_t num_buffer_frames;
+
+    this->audio_client->GetBufferSize(&num_buffer_frames);
+
     // Gets the amount of valid data that is currently stored in the buffer but hasn't been read yet
+    uint32_t num_padding_frames;
+
     this->audio_client->GetCurrentPadding(&num_padding_frames);
 
     // Gets the amount of available space in the buffer
     num_buffer_frames -= num_padding_frames;
 
     // Retrieves a pointer to the next available memory space in the rendering endpoint buffer
-    audio_render_client->GetBuffer(num_buffer_frames, &buffer);
+    BYTE *buffer;
 
-    // TODO
+    this->audio_render_client->GetBuffer(num_buffer_frames, &buffer);
 
-    // Get the rendering endpoint  buffer duration
-    buffer_audio_duration =
-            (DWORD) (num_buffer_frames / format->nSamplesPerSec) *
-            (REFTIMES_PER_SEC / REFTIMES_PER_MILLISEC);
+    //
+    memcpy(buffer, chunk, chunk_size);
+    free(chunk);
+    this->audio_client->GetCurrentPadding(&num_padding_frames);
 
     if (stop) {
         buffer_flags = AUDCLNT_BUFFERFLAGS_SILENT;
     }
 
-    audio_render_client->ReleaseBuffer(num_buffer_frames, buffer_flags);
+    this->audio_render_client->ReleaseBuffer(num_buffer_frames, buffer_flags);
 }
 
 void WASAPI::start() {
-    result = this->audio_client->Start();
+    this->audio_client->Start();
 }
 
 void WASAPI::stop() {
     this->audio_client->Stop();
 }
 
+void WASAPI::get_audio_volume_interface() {
+    // Gets a reference to the session volume control interface of the audio client
+    this->audio_client->GetService(__uuidof(ISimpleAudioVolume), (void **) &this->audio_volume_interface);
+}
+
 float WASAPI::get_volume() {
-    ISimpleAudioVolume *audio_volume;
     float current_volume;
 
-    // Gets a reference to the session volume control interface of the audio client
-    this->audio_client->GetService(IID_ISimpleAudioVolume, (void **) &audio_volume);
-
     // Gets the session master volume of the audio client
-    audio_volume->GetMasterVolume(&current_volume);
+    this->audio_volume_interface->GetMasterVolume(&current_volume);
 
     return current_volume;
 }
 
-void WASAPI::set_volume() {
-    ISimpleAudioVolume *audio_volume;
-
-    // Gets a reference to the session volume control interface of the audio client
-    this->audio_client->GetService(IID_ISimpleAudioVolume, (void **) &audio_volume);
-
+void WASAPI::set_volume(float volume) {
     // Sets the session master volume of the audio client
-    float volume = 0.2;
-    audio_volume->SetMasterVolume(volume, nullptr);
+    this->audio_volume_interface->SetMasterVolume(volume, nullptr);
 }

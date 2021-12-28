@@ -22,7 +22,7 @@ private:
     int current_audio_buffer_chunk{};
     bool is_audio_buffer_ready{};
     bool is_playback_started{};
-    std::condition_variable *cv{};
+    std::condition_variable cv;
     std::mutex mtx;
 
     void check_riff_header(std::shared_ptr<std::ifstream> file);

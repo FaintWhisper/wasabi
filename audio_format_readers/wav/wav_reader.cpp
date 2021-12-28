@@ -18,7 +18,7 @@ void WAVReader::load_file(std::string *file_path) {
         std::shared_ptr<std::ifstream> file = std::make_shared<std::ifstream>(this->audio_file_path,
                                                                               std::ios::in | std::ios::binary);
 
-        if (file != nullptr) {
+        if (file != nullptr && file->is_open()) {
             std::cout << "\n[Loaded \"" << *file_path << "\"]" << std::flush;
 
             check_riff_header(file);
@@ -36,18 +36,18 @@ void WAVReader::load_file(std::string *file_path) {
 };
 
 void WAVReader::check_riff_header(std::shared_ptr<std::ifstream> file) {
-    char file_chunk_id[4];
+    char file_chunk_id[5];
     uint32_t file_chunk_size;
-    char file_format[4];
+    char file_format[5];
 
     std::cout << "\nChecking the file header..." << std::endl;
 
     // Checks the chunk ID
-    file->read(file_chunk_id, sizeof(file_chunk_id));
+    file->read(file_chunk_id, sizeof(file_chunk_id) - 1);
 
-    file_chunk_id[sizeof(file_chunk_id)] = '\0';
+    file_chunk_id[sizeof(file_chunk_id) - 1] = '\0';
 
-    if (strcmp(file_chunk_id, "RIFF") == 0) {
+    if (strncmp(file_chunk_id, "RIFF", sizeof(file_chunk_id) - 1) == 0) {
         std::cout << "Chunk ID: Ok." << std::endl;
 
         strcpy(this->chunk_id, file_chunk_id);
@@ -71,11 +71,11 @@ void WAVReader::check_riff_header(std::shared_ptr<std::ifstream> file) {
     }
 
     // Checks the format descriptor
-    file->read(file_format, sizeof(file_format));
+    file->read(file_format, sizeof(file_format) - 1);
 
-    file_format[sizeof(file_format)] = '\0';
+    file_chunk_id[sizeof(file_chunk_id) - 1] = '\0';
 
-    if (strcmp(file_format, "WAVE") == 0) {
+    if (strncmp(file_format, "WAVE", sizeof(file_format) - 1) == 0) {
         std::cout << "Format descriptor: Ok." << std::endl;
 
         strcpy(this->format_descriptor, file_format);
@@ -84,12 +84,10 @@ void WAVReader::check_riff_header(std::shared_ptr<std::ifstream> file) {
 
         exit(EXIT_FAILURE);
     }
-
-    file->tellg();
 };
 
 void WAVReader::load_fmt_subchunk(std::shared_ptr<std::ifstream> file) {
-    char file_fmt_id[4];
+    char file_fmt_id[5];
     uint32_t file_fmt_size;
     uint16_t file_fmt_audio_format;
     uint16_t file_fmt_num_channels;
@@ -101,9 +99,11 @@ void WAVReader::load_fmt_subchunk(std::shared_ptr<std::ifstream> file) {
     std::cout << "\nReading the 'fmt' subchunk..." << std::endl;
 
     // Checks the fmt subchunk ID
-    file->read(file_fmt_id, sizeof(file_fmt_id));
+    file->read(file_fmt_id, sizeof(file_fmt_id) - 1);
 
-    if (strncmp(file_fmt_id, "fmt", sizeof(file_fmt_id) - 1) == 0) {
+    file_fmt_id[sizeof(file_fmt_id) - 1] = '\0';
+
+    if (strncmp(file_fmt_id, "fmt", sizeof(file_fmt_id) - 2) == 0) {
         std::cout << "fmt subchunk ID: Ok." << std::endl;
 
         strcpy(this->chunk_id, file_fmt_id);
@@ -114,7 +114,7 @@ void WAVReader::load_fmt_subchunk(std::shared_ptr<std::ifstream> file) {
     }
 
     // Gets the fmt subchunk size and checks the audio encoding
-    file->read(reinterpret_cast<char *> (&file_fmt_size), sizeof(file_fmt_size));
+    file->read((char*) &file_fmt_size, sizeof(file_fmt_size));
 
     if (file_fmt_size == 16) {
         std::cout << "fmt subchunk size: Ok (" << file_fmt_size << " bytes)." << std::endl;
@@ -217,13 +217,15 @@ void WAVReader::load_fmt_subchunk(std::shared_ptr<std::ifstream> file) {
 };
 
 void WAVReader::load_data_subchunk(std::shared_ptr<std::ifstream> file) {
-    char file_data_id[4];
+    char file_data_id[5];
     uint32_t file_data_size;
 
     std::cout << "\nReading the 'data' subchunk..." << std::endl;
 
     // Checks the data sbuchunk ID
-    file->read(file_data_id, sizeof(file_data_id));
+    file->read(file_data_id, sizeof(file_data_id) - 1);
+
+    file_data_id[sizeof(file_data_id) - 1] = '\0';
 
     if (strncmp(file_data_id, "data", sizeof(file_data_id)) == 0) {
         std::cout << "data subchunk ID: Ok." << std::endl;
@@ -274,7 +276,7 @@ void WAVReader::load_data(std::shared_ptr<std::ifstream> file) {
 
             if (!this->is_playback_started && (current_file_chunk == (MAX_AUDIO_BUFFER_CHUNKS - 1) || this->audio_buffer_chunks[current_file_chunk].is_eof)) {
                 this->is_audio_buffer_ready = TRUE;
-                this->cv->notify_one();
+                this->cv.notify_one();
             }
 
             current_file_chunk += 1;
@@ -295,7 +297,7 @@ bool WAVReader::get_chunk(BYTE **chunk, uint32_t &chunk_size) {
     std::unique_lock<std::mutex> lck(this->mtx);
 
     while (!this->is_audio_buffer_ready) {
-        this->cv->wait(lck);
+        this->cv.wait(lck);
     }
 
     while (this->audio_buffer_chunks[this->current_audio_buffer_chunk].data == nullptr) {

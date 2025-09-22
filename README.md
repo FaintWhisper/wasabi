@@ -14,6 +14,6 @@ For now, it only works with LPCM encoded WAV audio files that have the same para
 - Convert the audio to the same format that the default audio output device is using.
 - Support more audio formats (such as other PCM types and non PCM encoded WAV files, FLAC, ALAC, AIFF, MP3, etc).
 - DONE:
-  - Load the audio in chunks from a separate thread rather than doing it all at once, thus decreasing the wait time until the playback begins and considerably reducing the memory footprint.
+  - Stream audio data progressively through background threading, enabling async chunked decoding and immediate playback. This minimizes initial buffering delays while consuming much less memory by incremental data processing instead of loading the complete file in memory upfront.
   - Add audio session volume control.
   - Add audio playback control.
